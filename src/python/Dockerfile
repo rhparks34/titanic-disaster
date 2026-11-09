@@ -5,7 +5,7 @@ FROM python:3.12.16-slim
 WORKDIR /app/src/python
 
 COPY src/python/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore --disable-pip-version-check -r requirements.txt
 
 # The Kaggle CSVs have to be downloaded into src/data before building (see README)
 COPY src/data/train.csv src/data/test.csv src/data/gender_submission.csv /app/src/data/
