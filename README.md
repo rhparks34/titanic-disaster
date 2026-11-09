@@ -4,6 +4,25 @@ Predicts Titanic survival with a logistic regression, run in a Python container 
 
 The dataset is not included in the repo.
 
+## Repo layout
+
+```
+titanic-disaster/
+├── README.md
+├── .gitignore
+├── CODEOWNERS
+└── src/
+    ├── data/               train.csv, test.csv, gender_submission.csv go here (not committed)
+    ├── python/
+    │   ├── Dockerfile
+    │   ├── requirements.txt
+    │   └── titanic_model.py
+    └── r/
+        ├── Dockerfile
+        ├── install_packages.R
+        └── titanic_model.R
+```
+
 ## Requirements
 
 - Docker
