@@ -20,39 +20,40 @@ load_csv <- function(name) {
 get_title <- function(df) sub("^[^,]*,\\s*([^.]+)\\..*$", "\\1", df$Name)
 
 # Apply the same changes to train and test, printing each one
-clean <- function(df, title_medians, fare_median, embarked_mode) {
+clean <- function(df, title_medians, fare_median, embarked_mode, verbose = TRUE) {
+  say <- if (verbose) cat else function(...) invisible(NULL)
   title <- get_title(df)
 
   missing <- is.na(df$Age)
   df <- df %>% mutate(Age = ifelse(missing, as.numeric(title_medians[title]), Age))
   used <- sort(unique(title[missing]))
-  cat(sprintf("- Filled %d missing Age values with the median age for their title (%s)\n",
+  say(sprintf("- Filled %d missing Age values with the median age for their title (%s)\n",
               sum(missing), paste(used, title_medians[used], collapse = ", ")))
 
   n <- sum(is.na(df$Fare))
   df <- df %>% mutate(Fare = ifelse(is.na(Fare), fare_median, Fare))
-  cat(sprintf("- Filled %d missing Fare values with the median fare (%.4f)\n", n, fare_median))
+  say(sprintf("- Filled %d missing Fare values with the median fare (%.4f)\n", n, fare_median))
 
   n <- sum(is.na(df$Embarked))
   df <- df %>% mutate(Embarked = ifelse(is.na(Embarked), embarked_mode, Embarked))
-  cat(sprintf("- Filled %d missing Embarked values with the most common port (%s)\n", n, embarked_mode))
+  say(sprintf("- Filled %d missing Embarked values with the most common port (%s)\n", n, embarked_mode))
 
   df <- df %>% mutate(Sex = ifelse(Sex == "female", 1, 0))
-  cat("- Encoded Sex: male = 0, female = 1\n")
+  say("- Encoded Sex: male = 0, female = 1\n")
 
   df <- df %>% mutate(FamilySize = SibSp + Parch + 1)
-  cat("- Added FamilySize = SibSp + Parch + 1\n")
+  say("- Added FamilySize = SibSp + Parch + 1\n")
 
   df <- df %>% mutate(Boy = as.integer(title == "Master"))
-  cat(sprintf("- Added Boy = 1 if the title is Master, else 0 (%d boys)\n", sum(df$Boy)))
+  say(sprintf("- Added Boy = 1 if the title is Master, else 0 (%d boys)\n", sum(df$Boy)))
 
   df <- df %>% mutate(Embarked_Q = as.integer(Embarked == "Q"),
                       Embarked_S = as.integer(Embarked == "S"))
-  cat("- Replaced Embarked with 0/1 columns Embarked_Q and Embarked_S\n")
+  say("- Replaced Embarked with 0/1 columns Embarked_Q and Embarked_S\n")
 
   dropped <- c("PassengerId", "Name", "Ticket", "Cabin", "SibSp", "Parch", "Embarked")
   df <- df %>% select(-all_of(dropped))
-  cat(sprintf("- Dropped columns not used in the model: %s\n", paste(dropped, collapse = ", ")))
+  say(sprintf("- Dropped columns not used in the model: %s\n", paste(dropped, collapse = ", ")))
   df
 }
 
@@ -108,12 +109,19 @@ header("Q18: accuracy on the test set")
 cat("test.csv has no Survived column, so accuracy can't be measured on it directly.\n")
 
 # Hold-out: every 5th passenger (PassengerId divisible by 5), so Python and R use the same rows
+# Fill values for the hold-out come from the fitting rows only
 holdout <- train$PassengerId %% 5 == 0
-holdout_model <- glm(formula, data = train_clean[!holdout, ], family = binomial)
-holdout_pred <- as.integer(predict(holdout_model, train_clean[holdout, ], type = "response") > 0.5)
-holdout_acc <- accuracy(train_clean$Survived[holdout], holdout_pred)
-cat(sprintf("Hold-out accuracy (fit on %d train.csv passengers, tested on the other %d): %.4f (%.1f%%)\n",
-            sum(!holdout), sum(holdout), holdout_acc, 100 * holdout_acc))
+fit <- train[!holdout, ]
+fit_medians <- tapply(fit$Age, get_title(fit), median, na.rm = TRUE)
+fit_fare <- median(fit$Fare, na.rm = TRUE)
+fit_port <- names(which.max(table(fit$Embarked)))
+fit_clean <- clean(fit, fit_medians, fit_fare, fit_port, verbose = FALSE)
+held_clean <- clean(train[holdout, ], fit_medians, fit_fare, fit_port, verbose = FALSE)
+holdout_model <- glm(formula, data = fit_clean, family = binomial)
+holdout_pred <- as.integer(predict(holdout_model, held_clean, type = "response") > 0.5)
+holdout_acc <- accuracy(held_clean$Survived, holdout_pred)
+cat(sprintf("Hold-out accuracy (same changes, fit on %d train.csv passengers, tested on the other %d): %.4f (%.1f%%)\n",
+            nrow(fit), sum(holdout), holdout_acc, 100 * holdout_acc))
 
 gender <- load_csv("gender_submission.csv")
 merged <- inner_join(predictions, gender, by = "PassengerId", suffix = c("_pred", "_gender"))
