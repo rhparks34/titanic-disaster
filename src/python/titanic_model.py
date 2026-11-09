@@ -19,34 +19,41 @@ def load_csv(name):
     return df
 
 
-def clean(df, age_median, fare_median, embarked_mode):
+def get_title(df):
+    """Title from Name, e.g. "Braund, Mr. Owen Harris" -> "Mr"."""
+    return df["Name"].str.extract(r",\s*([^.]+)\.")[0]
+
+
+def clean(df, title_medians, fare_median, embarked_mode):
     """Apply the same changes to train and test, printing each one."""
     df = df.copy()
+    title = get_title(df)
 
-    n = df["Age"].isna().sum()
-    df["Age"] = df["Age"].fillna(age_median)
-    print(f"- Filled {n} missing Age values with the training median ({age_median})")
+    missing = df["Age"].isna()
+    df.loc[missing, "Age"] = title[missing].map(title_medians)
+    used = ", ".join(f"{t} {title_medians[t]:g}" for t in sorted(title[missing].unique()))
+    print(f"- Filled {missing.sum()} missing Age values with the median age for their title ({used})")
 
     n = df["Fare"].isna().sum()
     df["Fare"] = df["Fare"].fillna(fare_median)
-    print(f"- Filled {n} missing Fare values with the training median ({fare_median:.4f})")
+    print(f"- Filled {n} missing Fare values with the median fare ({fare_median:.4f})")
 
     n = df["Embarked"].isna().sum()
     df["Embarked"] = df["Embarked"].fillna(embarked_mode)
     print(f"- Filled {n} missing Embarked values with the most common port ({embarked_mode})")
 
     df["Sex"] = df["Sex"].map({"male": 0, "female": 1})
-    print("- Encoded Sex as a number: male = 0, female = 1")
+    print("- Encoded Sex: male = 0, female = 1")
 
     df["FamilySize"] = df["SibSp"] + df["Parch"] + 1
-    print("- Added FamilySize = SibSp + Parch + 1 (the passenger plus family on board)")
+    print("- Added FamilySize = SibSp + Parch + 1")
 
-    df["Boy"] = df["Name"].str.contains(", Master.", regex=False).astype(int)
-    print(f"- Added Boy = 1 if the title in Name is Master (used for boys), else 0: {df['Boy'].sum()} boys")
+    df["Boy"] = (title == "Master").astype(int)
+    print(f"- Added Boy = 1 if the title is Master, else 0 ({df['Boy'].sum()} boys)")
 
     df["Embarked_Q"] = (df["Embarked"] == "Q").astype(int)
     df["Embarked_S"] = (df["Embarked"] == "S").astype(int)
-    print("- Turned Embarked into two 0/1 columns, Embarked_Q and Embarked_S (C is the baseline)")
+    print("- Replaced Embarked with 0/1 columns Embarked_Q and Embarked_S")
 
     dropped = ["PassengerId", "Name", "Ticket", "Cabin", "SibSp", "Parch", "Embarked"]
     df = df.drop(columns=dropped)
@@ -71,15 +78,14 @@ print("\nSurvival rate by sex:")
 print(train.groupby("Sex")["Survived"].mean().round(3).to_string())
 print("\nSurvival rate by class:")
 print(train.groupby("Pclass")["Survived"].mean().round(3).to_string())
-print("\nCabin is missing for most passengers, so I drop it instead of filling it in.")
 
 # Fill values come from train.csv only and get reused on test.csv
-age_median = train["Age"].median()
+title_medians = train["Age"].groupby(get_title(train)).median()
 fare_median = train["Fare"].median()
 embarked_mode = train["Embarked"].mode()[0]
 
 print("\nChanges to train.csv:")
-train_clean = clean(train, age_median, fare_median, embarked_mode)
+train_clean = clean(train, title_medians, fare_median, embarked_mode)
 X_train = train_clean[FEATURES]
 y_train = train_clean["Survived"]
 print(f"\nModel data: {X_train.shape[0]} rows, features = {FEATURES}")
@@ -89,7 +95,7 @@ print()
 print("=" * 70)
 print("Q15: fit a logistic regression on train.csv")
 print("=" * 70)
-model = LogisticRegression(penalty=None, max_iter=1000)
+model = LogisticRegression(penalty=None, solver="newton-cg", max_iter=1000)
 model.fit(X_train, y_train)
 coefs = pd.Series(model.coef_[0], index=FEATURES)
 print(f"Intercept: {model.intercept_[0]:.4f}")
@@ -109,7 +115,7 @@ print("Q17: load test.csv and predict")
 print("=" * 70)
 test = load_csv("test.csv")
 print("Changes to test.csv (same steps, using the train.csv fill values):")
-test_clean = clean(test, age_median, fare_median, embarked_mode)
+test_clean = clean(test, title_medians, fare_median, embarked_mode)
 test_pred = model.predict(test_clean[FEATURES])
 predictions = pd.DataFrame({"PassengerId": test["PassengerId"], "Survived": test_pred})
 print(f"\nPredicted {test_pred.sum()} of {len(test_pred)} test passengers survive ({test_pred.mean():.1%})")
@@ -120,24 +126,17 @@ print()
 print("=" * 70)
 print("Q18: accuracy on the test set")
 print("=" * 70)
-print("test.csv has no Survived column (Kaggle keeps those answers private),")
-print("so accuracy can't be computed on it directly. Two ways to check it instead:")
+print("test.csv has no Survived column, so accuracy can't be measured on it directly.")
 
 # Hold-out: every 5th passenger (PassengerId divisible by 5), so Python and R use the same rows
 holdout = train["PassengerId"] % 5 == 0
-holdout_model = LogisticRegression(penalty=None, max_iter=1000)
+holdout_model = LogisticRegression(penalty=None, solver="newton-cg", max_iter=1000)
 holdout_model.fit(X_train[~holdout], y_train[~holdout])
 holdout_acc = accuracy_score(y_train[holdout], holdout_model.predict(X_train[holdout]))
-print(f"\n1) Hold-out accuracy: {holdout_acc:.4f} ({holdout_acc:.1%})")
-print(f"   Refit the same model on {(~holdout).sum()} train.csv passengers and tested it on the other")
-print(f"   {holdout.sum()} (every PassengerId divisible by 5), which the model never saw.")
-print("   This is my estimate of test accuracy.")
+print(f"Hold-out accuracy (fit on {(~holdout).sum()} train.csv passengers, tested on the other {holdout.sum()}): "
+      f"{holdout_acc:.4f} ({holdout_acc:.1%})")
 
-print()
 gender = load_csv("gender_submission.csv")
 merged = predictions.merge(gender, on="PassengerId", suffixes=("_pred", "_gender"))
 agree = (merged["Survived_pred"] == merged["Survived_gender"]).mean()
-print(f"\n2) Match with gender_submission.csv: {agree:.4f} ({agree:.1%})")
-print("   gender_submission.csv is Kaggle's example file that guesses every woman survived and")
-print("   every man died. It is not the real answers, so this only shows how close the model")
-print("   is to that simple guess, not true accuracy.")
+print(f"Match with gender_submission.csv (Kaggle's sample file, not the true answers): {agree:.4f} ({agree:.1%})")
