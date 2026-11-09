@@ -73,9 +73,3 @@ docker run --rm titanic-r
 ```
 
 The first build takes a few minutes because `install_packages.R` installs dplyr.
-
-## What the output shows
-
-Both containers print the same sections, labeled with the homework question numbers. Q13 loads `train.csv`. Q14 shows missing values and survival rates, then prints each change to the data. Q15 fits the logistic regression and prints the coefficients, and Q16 prints the training accuracy. Q17 makes the same changes to `test.csv` and predicts survival.
-
-For Q18, `test.csv` has no `Survived` column (Kaggle keeps those answers private), so the scripts estimate test accuracy by refitting the model on 713 passengers from `train.csv` and testing it on the other 178.
