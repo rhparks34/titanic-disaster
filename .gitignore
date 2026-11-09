@@ -1,0 +1,12 @@
+# Kaggle data (downloaded locally, never committed)
+src/data/*
+!src/data/.gitkeep
+
+# Hidden files
+.DS_Store
+.Rhistory
+.RData
+
+# Virtual environments
+venv/
+.venv/
