@@ -24,40 +24,41 @@ def get_title(df):
     return df["Name"].str.extract(r",\s*([^.]+)\.")[0]
 
 
-def clean(df, title_medians, fare_median, embarked_mode):
+def clean(df, title_medians, fare_median, embarked_mode, verbose=True):
     """Apply the same changes to train and test, printing each one."""
+    say = print if verbose else (lambda *args: None)
     df = df.copy()
     title = get_title(df)
 
     missing = df["Age"].isna()
     df.loc[missing, "Age"] = title[missing].map(title_medians)
     used = ", ".join(f"{t} {title_medians[t]:g}" for t in sorted(title[missing].unique()))
-    print(f"- Filled {missing.sum()} missing Age values with the median age for their title ({used})")
+    say(f"- Filled {missing.sum()} missing Age values with the median age for their title ({used})")
 
     n = df["Fare"].isna().sum()
     df["Fare"] = df["Fare"].fillna(fare_median)
-    print(f"- Filled {n} missing Fare values with the median fare ({fare_median:.4f})")
+    say(f"- Filled {n} missing Fare values with the median fare ({fare_median:.4f})")
 
     n = df["Embarked"].isna().sum()
     df["Embarked"] = df["Embarked"].fillna(embarked_mode)
-    print(f"- Filled {n} missing Embarked values with the most common port ({embarked_mode})")
+    say(f"- Filled {n} missing Embarked values with the most common port ({embarked_mode})")
 
     df["Sex"] = df["Sex"].map({"male": 0, "female": 1})
-    print("- Encoded Sex: male = 0, female = 1")
+    say("- Encoded Sex: male = 0, female = 1")
 
     df["FamilySize"] = df["SibSp"] + df["Parch"] + 1
-    print("- Added FamilySize = SibSp + Parch + 1")
+    say("- Added FamilySize = SibSp + Parch + 1")
 
     df["Boy"] = (title == "Master").astype(int)
-    print(f"- Added Boy = 1 if the title is Master, else 0 ({df['Boy'].sum()} boys)")
+    say(f"- Added Boy = 1 if the title is Master, else 0 ({df['Boy'].sum()} boys)")
 
     df["Embarked_Q"] = (df["Embarked"] == "Q").astype(int)
     df["Embarked_S"] = (df["Embarked"] == "S").astype(int)
-    print("- Replaced Embarked with 0/1 columns Embarked_Q and Embarked_S")
+    say("- Replaced Embarked with 0/1 columns Embarked_Q and Embarked_S")
 
     dropped = ["PassengerId", "Name", "Ticket", "Cabin", "SibSp", "Parch", "Embarked"]
     df = df.drop(columns=dropped)
-    print(f"- Dropped columns not used in the model: {', '.join(dropped)}")
+    say(f"- Dropped columns not used in the model: {', '.join(dropped)}")
     return df
 
 
@@ -95,7 +96,7 @@ print()
 print("=" * 70)
 print("Q15: fit a logistic regression on train.csv")
 print("=" * 70)
-model = LogisticRegression(penalty=None, solver="newton-cg", max_iter=1000)
+model = LogisticRegression(penalty=None, solver="newton-cg", tol=1e-8, max_iter=1000)
 model.fit(X_train, y_train)
 coefs = pd.Series(model.coef_[0], index=FEATURES)
 print(f"Intercept: {model.intercept_[0]:.4f}")
@@ -129,11 +130,16 @@ print("=" * 70)
 print("test.csv has no Survived column, so accuracy can't be measured on it directly.")
 
 # Hold-out: every 5th passenger (PassengerId divisible by 5), so Python and R use the same rows
+# Fill values for the hold-out come from the fitting rows only
 holdout = train["PassengerId"] % 5 == 0
-holdout_model = LogisticRegression(penalty=None, solver="newton-cg", max_iter=1000)
-holdout_model.fit(X_train[~holdout], y_train[~holdout])
-holdout_acc = accuracy_score(y_train[holdout], holdout_model.predict(X_train[holdout]))
-print(f"Hold-out accuracy (fit on {(~holdout).sum()} train.csv passengers, tested on the other {holdout.sum()}): "
+fit = train[~holdout]
+fit_fills = (fit["Age"].groupby(get_title(fit)).median(), fit["Fare"].median(), fit["Embarked"].mode()[0])
+fit_clean = clean(fit, *fit_fills, verbose=False)
+held_clean = clean(train[holdout], *fit_fills, verbose=False)
+holdout_model = LogisticRegression(penalty=None, solver="newton-cg", tol=1e-8, max_iter=1000)
+holdout_model.fit(fit_clean[FEATURES], fit_clean["Survived"])
+holdout_acc = accuracy_score(held_clean["Survived"], holdout_model.predict(held_clean[FEATURES]))
+print(f"Hold-out accuracy (same changes, fit on {len(fit)} train.csv passengers, tested on the other {holdout.sum()}): "
       f"{holdout_acc:.4f} ({holdout_acc:.1%})")
 
 gender = load_csv("gender_submission.csv")
